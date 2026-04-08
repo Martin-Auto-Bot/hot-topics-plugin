@@ -1,0 +1,33 @@
+<idea-plugin>
+    <id>com.github.hottopics</id>
+    <name>Hot Topics Browser</name>
+    <vendor email="support@example.com" url="https://github.com/hottopics">Hot Topics</vendor>
+    
+    <description><![CDATA[
+    一个用于浏览热门话题的 IntelliJ IDEA 插件。
+    
+    功能特点：
+    <ul>
+        <li>浏览 V2EX、知乎等平台的热门话题</li>
+        <li>在侧边栏展示话题列表</li>
+        <li>点击话题查看详细内容和回复</li>
+        <li>支持刷新和切换数据源</li>
+    </ul>
+    ]]></description>
+    
+    <!-- Product and plugin compatibility requirements -->
+    <depends>com.intellij.modules.platform</depends>
+    
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- 注册工具窗口 -->
+        <toolWindow 
+            id="Hot Topics"
+            anchor="right"
+            icon="AllIcons.General.Modified"
+            factoryClass="com.github.hottopics.toolwindow.HotTopicsToolWindowFactory"/>
+    </extensions>
+    
+    <actions>
+        <!-- 可以在这里添加菜单动作 -->
+    </actions>
+</idea-plugin>
