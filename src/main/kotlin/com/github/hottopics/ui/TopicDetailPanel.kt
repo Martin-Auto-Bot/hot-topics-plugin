@@ -172,8 +172,6 @@ class TopicDetailPanel(
         val htmlContent = TextUtils.convertToHtml(topic.content)
         contentPane.text = "<html><body style='width: 350px;'>$htmlContent</body></html>"
 
-        contentPane.preferredSize = Dimension(380, Int.MAX_VALUE)
-
         contentPanel.add(contentPane, BorderLayout.CENTER)
         contentPanel.revalidate()
         contentPanel.repaint()
