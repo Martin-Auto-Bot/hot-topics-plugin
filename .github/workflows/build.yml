@@ -17,7 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
-      plugin_zip: ${{ steps.version.outputs.plugin_zip }}
       changelog: ${{ steps.version.outputs.changelog }}
 
     steps:
@@ -42,13 +41,11 @@ jobs:
     - name: Extract plugin version
       id: version
       run: |
-        # 从 build.gradle.kts 中提取版本号
         VERSION=$(grep 'version =' build.gradle.kts | head -1 | sed 's/.*"\(.*\)".*/\1/')
         echo "version=${VERSION}" >> $GITHUB_OUTPUT
-        echo "plugin_zip=hot-topics-plugin-${VERSION}.zip" >> $GITHUB_OUTPUT
         echo "插件版本: ${VERSION}"
 
-        # 生成变更日志（最近一次 tag 之后的提交）
+        # 生成变更日志
         if git tag --list &>/dev/null; then
           PREVIOUS_TAG=$(git tag --sort=-version:refname | head -2 | tail -1)
           if [ -n "$PREVIOUS_TAG" ]; then
@@ -70,63 +67,45 @@ jobs:
       run: |
         echo "=== 构建产物 ==="
         ls -la build/distributions/
-        PLUGIN_ZIP=$(ls build/distributions/hot-topics-plugin-*.zip | head -1)
         echo ""
-        echo "=== 插件 zip 内部结构 ==="
-        unzip -l "$PLUGIN_ZIP"
+        echo "=== 插件 zip 内部结构 (确认可直接安装) ==="
+        unzip -l build/distributions/hot-topics-plugin-*.zip
 
-    # ── 制品上传：解压后再上传目录，避免 zip 套 zip ──
-    - name: Prepare installable artifact
-      run: |
-        mkdir -p install-artifact
-        cp build/distributions/hot-topics-plugin-*.zip install-artifact/
-        echo "install-artifact 目录内容:"
-        ls -la install-artifact/
-
-    - name: Upload plugin artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: hot-topics-plugin-${{ steps.version.outputs.version }}
-        path: install-artifact/
-        retention-days: 90
-        if-no-files-found: error
-
-  # ── 发布到 GitHub Release：仅在推送 tag (v*) 时触发 ──
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Setup Java 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-        cache: 'gradle'
-
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
-
-    - name: Build Plugin for Release
-      run: ./gradlew buildPlugin
-
-    # 直接使用 build/distributions 下的原始 zip（无 zip 套 zip 问题）
-    - name: Create GitHub Release
+    # ── 每次 push 都更新 dev-latest pre-release，提供可直接安装的 zip ──
+    - name: Publish dev-latest release
+      if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
-        name: Hot Topics Plugin v${{ needs.build.outputs.version }}
+        tag_name: dev-latest
+        name: "Hot Topics Plugin (开发版)"
         body: |
-          ## Hot Topics Browser IntelliJ Plugin v${{ needs.build.outputs.version }}
+          ## 开发版构建
+
+          > 本 Release 由每次 push 到 main 分支自动更新，包含最新代码变更。
 
           ### 安装方法
-          1. 下载下方 `hot-topics-plugin-*.zip` 文件
+          1. 下载下方 `hot-topics-plugin-*.zip`（**直接下载，无需再解压**）
+          2. 打开 IntelliJ IDEA / GoLand
+          3. 进入 `Settings` → `Plugins` → ⚙️ → `Install Plugin from Disk...`
+          4. 选择刚下载的 zip 文件，重启 IDE
+          5. 在 IDE 右侧边栏找到 **Hot Topics** 面板
+        files: build/distributions/*.zip
+        prerelease: true
+        make_latest: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # ── 正式发布：仅在推送 v* tag 时触发 ──
+    - name: Publish official release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v2
+      with:
+        name: "Hot Topics Plugin v${{ steps.version.outputs.version }}"
+        body: |
+          ## Hot Topics Browser IntelliJ Plugin v${{ steps.version.outputs.version }}
+
+          ### 安装方法
+          1. 下载下方 `hot-topics-plugin-*.zip`（**直接下载，无需再解压**）
           2. 打开 IntelliJ IDEA / GoLand
           3. 进入 `Settings` → `Plugins` → ⚙️ → `Install Plugin from Disk...`
           4. 选择下载的 zip 文件，重启 IDE
@@ -139,7 +118,7 @@ jobs:
           - 一键在浏览器中打开原帖
 
           ### 更新日志
-          ${{ needs.build.outputs.changelog }}
+          ${{ steps.version.outputs.changelog }}
         files: build/distributions/*.zip
         draft: false
         prerelease: false
