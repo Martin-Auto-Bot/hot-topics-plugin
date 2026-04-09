@@ -3,6 +3,7 @@ package com.github.hottopics.ui
 import com.github.hottopics.model.SourceType
 import com.github.hottopics.model.Topic
 import com.github.hottopics.util.TextUtils
+import com.github.hottopics.util.ThemeUtils
 import com.intellij.icons.AllIcons
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
@@ -13,10 +14,14 @@ import java.awt.*
 import java.awt.datatransfer.StringSelection
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.event.ActionEvent
 import javax.swing.*
+import javax.swing.border.EmptyBorder
+import javax.swing.event.ListSelectionEvent
+import javax.swing.event.ListSelectionListener
 
 /**
- * 话题列表面板（支持翻页）
+ * 话题列表面板（支持翻页 + 暗色模式）
  */
 class TopicListPanel(
     private val onTopicClick: (Topic) -> Unit,
@@ -33,6 +38,7 @@ class TopicListPanel(
 
     private var currentPage = 1
     private var hasMore = true
+    private var isClickFromSelection = false  // 防止 ListSelectionListener 和 mouseClicked 双重触发
 
     init {
         setupUI()
@@ -43,8 +49,23 @@ class TopicListPanel(
         topicList.cellRenderer = TopicListCellRenderer()
         topicList.fixedCellHeight = 80
         topicList.selectionMode = ListSelectionModel.SINGLE_SELECTION
+        topicList.emptyText.text = "暂无话题数据"
+        topicList.border = JBUI.Borders.empty()
 
-        // 添加鼠标监听器 - 单击跳转详情
+        // 方式一：ListSelectionListener（主要触发方式，更可靠）
+        topicList.addListSelectionListener(object : ListSelectionListener {
+            override fun valueChanged(e: ListSelectionEvent) {
+                if (e.valueIsAdjusting) return  // 忽略拖拽中的连续事件
+                if (isClickFromSelection) return // 防止 mouseClicked 重复触发
+                val index = topicList.selectedIndex
+                if (index >= 0 && index < listModel.size) {
+                    val topic = listModel.getElementAt(index)
+                    onTopicClick(topic)
+                }
+            }
+        })
+
+        // 方式二：鼠标点击（备用触发方式）
         topicList.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
                 if (e.clickCount == 1) {
@@ -52,7 +73,14 @@ class TopicListPanel(
                     if (index >= 0 && index < listModel.size) {
                         val topic = listModel.getElementAt(index)
                         topicList.selectedIndex = index
-                        onTopicClick(topic)
+                        // 标记为鼠标点击触发，防止 ListSelectionListener 再次执行
+                        isClickFromSelection = true
+                        try {
+                            onTopicClick(topic)
+                        } finally {
+                            // 延迟重置标记，确保 ListSelectionListener 已跳过
+                            SwingUtilities.invokeLater { isClickFromSelection = false }
+                        }
                     }
                 }
             }
@@ -80,45 +108,44 @@ class TopicListPanel(
         // 滚动面板
         val scrollPane = JBScrollPane(topicList)
         scrollPane.border = JBUI.Borders.empty()
+        scrollPane.background = ThemeUtils.panelBackground
 
         // 加载面板
         loadingPanel.add(JBLabel("加载中...", AllIcons.Process.Step_1, SwingConstants.CENTER), BorderLayout.CENTER)
-        loadingPanel.background = JBColor.PanelBackground
+        loadingPanel.background = ThemeUtils.panelBackground
 
         // 内容面板
         contentPanel.add(scrollPane, CONTENT_VIEW)
         contentPanel.add(loadingPanel, LOADING_VIEW)
-        contentPanel.add(createEmptyPanel(), EMPTY_VIEW)
-        contentPanel.add(createErrorPanel(), ERROR_VIEW)
+        contentPanel.background = ThemeUtils.panelBackground
 
         add(contentPanel, BorderLayout.CENTER)
 
         // 底部：翻页 + 状态
         val bottomPanel = JPanel(BorderLayout())
-        bottomPanel.background = JBColor.PanelBackground
+        bottomPanel.background = ThemeUtils.panelBackground
+        bottomPanel.border = EmptyBorder(5, 8, 5, 8)
 
         // 翻页按钮
-        val paginationPanel = JPanel(FlowLayout(FlowLayout.CENTER))
-        paginationPanel.background = JBColor.PanelBackground
+        val paginationPanel = JPanel(FlowLayout(FlowLayout.CENTER, 5, 0))
+        paginationPanel.background = ThemeUtils.panelBackground
 
-        val prevButton = JButton("上一页").apply {
-            isEnabled = false
-            addActionListener {
-                if (currentPage > 1) {
-                    currentPage--
-                    onPageChange(currentPage)
-                }
+        val prevButton = createStyledButton("← 上一页")
+        prevButton.addActionListener {
+            if (currentPage > 1) {
+                currentPage--
+                onPageChange(currentPage)
             }
         }
 
         val pageLabel = JBLabel("第 1 页")
+        pageLabel.foreground = ThemeUtils.textSecondary
 
-        val nextButton = JButton("下一页").apply {
-            addActionListener {
-                if (hasMore) {
-                    currentPage++
-                    onPageChange(currentPage)
-                }
+        val nextButton = createStyledButton("下一页 →")
+        nextButton.addActionListener {
+            if (hasMore) {
+                currentPage++
+                onPageChange(currentPage)
             }
         }
 
@@ -132,7 +159,8 @@ class TopicListPanel(
 
         // 状态栏
         val statusBar = JPanel(FlowLayout(FlowLayout.LEFT))
-        statusBar.background = JBColor.PanelBackground
+        statusBar.background = ThemeUtils.panelBackground
+        statusLabel.foreground = ThemeUtils.textSecondary
         statusBar.add(statusLabel)
         bottomPanel.add(statusBar, BorderLayout.SOUTH)
 
@@ -141,26 +169,27 @@ class TopicListPanel(
         showView(CONTENT_VIEW)
     }
 
-    private fun createEmptyPanel(): JPanel {
-        val panel = JPanel(BorderLayout())
-        panel.background = JBColor.PanelBackground
-
-        val emptyLabel = JBLabel("暂无话题数据", AllIcons.General.Information, SwingConstants.CENTER)
-        emptyLabel.foreground = JBColor.GRAY
-        panel.add(emptyLabel, BorderLayout.CENTER)
-
-        return panel
-    }
-
-    private fun createErrorPanel(): JPanel {
-        val panel = JPanel(BorderLayout())
-        panel.background = JBColor.PanelBackground
-
-        val errorLabel = JBLabel("加载失败，请重试", AllIcons.General.Error, SwingConstants.CENTER)
-        errorLabel.foreground = JBColor.RED
-        panel.add(errorLabel, BorderLayout.CENTER)
-
-        return panel
+    /** 创建暗色模式友好的按钮 */
+    private fun createStyledButton(text: String): JButton {
+        return JButton(text).apply {
+            foreground = ThemeUtils.buttonForeground
+            border = JBUI.Borders.customLine(ThemeUtils.separatorColor, 1)
+            isContentAreaFilled = false
+            isOpaque = false
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            // 悬停效果
+            val rolloverListener = object : MouseAdapter() {
+                override fun mouseEntered(e: MouseEvent) {
+                    isContentAreaFilled = true
+                    background = ThemeUtils.buttonHoverBackground
+                }
+                override fun mouseExited(e: MouseEvent) {
+                    isContentAreaFilled = false
+                    background = null
+                }
+            }
+            addMouseListener(rolloverListener)
+        }
     }
 
     /**
@@ -196,6 +225,7 @@ class TopicListPanel(
 
     fun showError(message: String) {
         statusLabel.text = message
+        topicList.emptyText.text = message
         showView(ERROR_VIEW)
     }
 
@@ -205,7 +235,6 @@ class TopicListPanel(
     }
 
     private fun updatePagination() {
-        // 翻页组件在 bottomPanel 的 BorderLayout.CENTER 中
         val bottomPanel = getComponent(1) as JPanel
         val paginationPanel = bottomPanel.getComponent(0) as JPanel
         val prevButton = paginationPanel.getComponent(0) as JButton
@@ -213,8 +242,10 @@ class TopicListPanel(
         val nextButton = paginationPanel.getComponent(4) as JButton
 
         prevButton.isEnabled = currentPage > 1
+        prevButton.foreground = if (currentPage > 1) ThemeUtils.buttonForeground else ThemeUtils.textSecondary
         pageLabel.text = "第 $currentPage 页"
         nextButton.isEnabled = hasMore
+        nextButton.foreground = if (hasMore) ThemeUtils.buttonForeground else ThemeUtils.textSecondary
     }
 
     private fun showView(viewName: String) {
@@ -223,6 +254,7 @@ class TopicListPanel(
 
     private fun showContextMenu(e: MouseEvent, topic: Topic) {
         val popup = JPopupMenu()
+        popup.background = ThemeUtils.panelBackground
 
         val openItem = JMenuItem("查看详情", AllIcons.Actions.Edit)
         openItem.addActionListener { onTopicClick(topic) }
@@ -254,19 +286,20 @@ class TopicListPanel(
 }
 
 /**
- * 话题列表单元格渲染器（暗色模式适配）
+ * 话题列表单元格渲染器（暗色模式完整适配）
  */
 class TopicListCellRenderer : JPanel(BorderLayout()), ListCellRenderer<Topic> {
 
     private val titleLabel = JBLabel().apply {
         font = font.deriveFont(Font.BOLD, 13f)
+        foreground = ThemeUtils.textForeground
     }
     private val metaLabel = JBLabel().apply {
-        foreground = JBColor.GRAY
+        foreground = ThemeUtils.textSecondary
         font = font.deriveFont(11f)
     }
     private val statsLabel = JBLabel().apply {
-        foreground = JBColor(0x448AFF, 0x6D9FFF)
+        foreground = ThemeUtils.accentColor
         font = font.deriveFont(11f)
     }
     private val sourceBadge = JBLabel().apply {
@@ -302,7 +335,7 @@ class TopicListCellRenderer : JPanel(BorderLayout()), ListCellRenderer<Topic> {
     ): JComponent {
         titleLabel.text = TextUtils.truncateText(topic.title, 50)
 
-        sourceBadge.text = topic.source.displayName
+        sourceBadge.text = " ${topic.source.displayName} "
         sourceBadge.background = getSourceColor(topic.source)
         sourceBadge.foreground = Color.WHITE
 
@@ -310,11 +343,11 @@ class TopicListCellRenderer : JPanel(BorderLayout()), ListCellRenderer<Topic> {
 
         statsLabel.text = "💬 ${topic.replyCount}  👁 ${TextUtils.formatCount(topic.viewCount)}  ❤ ${topic.likeCount}"
 
-        // 暗色模式适配：使用 JBColor 提供亮色/暗色双值
+        // 暗色模式适配
         if (isSelected) {
-            background = JBColor(0x3D5A80, 0x3D5A80)
+            background = ThemeUtils.selectionBackground
         } else {
-            background = JBColor.PanelBackground
+            background = ThemeUtils.panelBackground
         }
 
         return this

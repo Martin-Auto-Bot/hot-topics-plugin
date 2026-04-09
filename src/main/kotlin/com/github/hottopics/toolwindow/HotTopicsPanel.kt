@@ -15,7 +15,6 @@ import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Dimension
-import java.awt.ItemEvent
 import javax.swing.*
 
 /**
