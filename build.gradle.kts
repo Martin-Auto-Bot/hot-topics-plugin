@@ -15,7 +15,7 @@ repositories {
 
 // Configure Gradle IntelliJ Plugin
 intellij {
-    version.set("2023.2")
+    version.set("2024.3")
     type.set("IC") // IntelliJ IDEA Community Edition
     
     plugins.set(listOf())
@@ -34,7 +34,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("232")
-        untilBuild.set("243.*")
+        untilBuild.set("253.*")
     }
 
     signPlugin {
