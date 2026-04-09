@@ -133,11 +133,11 @@ class TopicService {
         // 优先从 V2EX 缓存中查找
         val cached = v2exTopicCache[topicId]
         if (cached != null) {
-            // 尝试获取 V2EX 回复
-            val replies = fetchV2EXReplies(topicId)
-            return if (replies.isNotEmpty()) {
-                cached.copy(replies = replies)
-            } else {
+            // 尝试获取 V2EX 回复，失败不影响详情展示
+            return try {
+                val replies = fetchV2EXReplies(topicId)
+                if (replies.isNotEmpty()) cached.copy(replies = replies) else cached
+            } catch (_: Exception) {
                 cached
             }
         }
@@ -150,7 +150,8 @@ class TopicService {
     // ──────────────────────────────────────────────────────────────────────
 
     private fun fetchV2EXTopics(tab: V2exTab, page: Int): List<Topic> {
-        val url = "$V2EX_LATEST_URL?p=$page"
+        // V2EX latest.json 不支持分页，page 参数无效，始终返回最新 25 条
+        val url = V2EX_LATEST_URL
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "HotTopics-IntelliJ-Plugin/1.0")

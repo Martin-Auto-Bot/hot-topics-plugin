@@ -143,8 +143,8 @@ class HotTopicsPanel(private val project: Project) : JPanel(BorderLayout()) {
                 try {
                     val topics = dataService.getTopics(currentSource, currentV2exTab, currentPage)
                     SwingUtilities.invokeLater {
-                        // V2EX 每页约 25 条，少于 25 条视为最后一页
-                        val isLastPage = currentSource != SourceType.V2EX || topics.size < 25
+                        // V2EX latest.json 不支持分页，始终为最后一页；其他数据源根据数据量判断
+                        val isLastPage = currentSource == SourceType.V2EX || topics.size < 25
                         topicListPanel.setTopics(topics, currentPage, isLastPage)
                         topicListPanel.setLoading(false)
                     }
