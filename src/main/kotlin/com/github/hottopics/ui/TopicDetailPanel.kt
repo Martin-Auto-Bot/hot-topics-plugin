@@ -137,8 +137,8 @@ class TopicDetailPanel(
             topic.tags.forEach { tag ->
                 val tagLabel = JBLabel(tag)
                 tagLabel.isOpaque = true
-                tagLabel.background = JBColor(0xE8, 0xF4, 0xFD, 0x2A, 0x3A, 0x4A)
-                tagLabel.foreground = JBColor(0x00, 0x66, 0xCC, 0x66, 0x99, 0xCC)
+                tagLabel.background = JBColor(0xE8F4FD, 0x2A3A4A)
+                tagLabel.foreground = JBColor(0x0066CC, 0x6699CC)
                 tagLabel.border = JBUI.Borders.empty(2, 8)
                 tagsPanel.add(tagLabel)
             }
