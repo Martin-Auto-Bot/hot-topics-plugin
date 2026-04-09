@@ -114,9 +114,23 @@ class TopicListPanel(
         loadingPanel.add(JBLabel("加载中...", AllIcons.Process.Step_1, SwingConstants.CENTER), BorderLayout.CENTER)
         loadingPanel.background = ThemeUtils.panelBackground
 
+        // 空状态面板
+        val emptyPanel = JPanel(BorderLayout())
+        val emptyLabel = JBLabel("暂无话题数据", AllIcons.General.Warning, SwingConstants.CENTER)
+        emptyPanel.add(emptyLabel, BorderLayout.CENTER)
+        emptyPanel.background = ThemeUtils.panelBackground
+
+        // 错误状态面板
+        val errorPanel = JPanel(BorderLayout())
+        val errorLabel = JBLabel("加载失败，请检查网络后重试", AllIcons.General.Error, SwingConstants.CENTER)
+        errorPanel.add(errorLabel, BorderLayout.CENTER)
+        errorPanel.background = ThemeUtils.panelBackground
+
         // 内容面板
         contentPanel.add(scrollPane, CONTENT_VIEW)
         contentPanel.add(loadingPanel, LOADING_VIEW)
+        contentPanel.add(emptyPanel, EMPTY_VIEW)
+        contentPanel.add(errorPanel, ERROR_VIEW)
         contentPanel.background = ThemeUtils.panelBackground
 
         add(contentPanel, BorderLayout.CENTER)

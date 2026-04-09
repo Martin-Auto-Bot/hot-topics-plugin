@@ -17,8 +17,8 @@ import java.util.concurrent.TimeUnit
 class TopicService {
 
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
     private val gson = Gson()
@@ -150,40 +150,37 @@ class TopicService {
     // ──────────────────────────────────────────────────────────────────────
 
     private fun fetchV2EXTopics(tab: V2exTab, page: Int): List<Topic> {
-        return try {
-            val url = "$V2EX_LATEST_URL?p=$page"
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "HotTopics-IntelliJ-Plugin/1.0")
-                .get()
-                .build()
+        val url = "$V2EX_LATEST_URL?p=$page"
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "HotTopics-IntelliJ-Plugin/1.0")
+            .get()
+            .build()
 
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return emptyList()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw RuntimeException("V2EX API 请求失败: HTTP ${response.code}")
+            }
 
-                val body = response.body?.string() ?: return emptyList()
+            val body = response.body?.string()
+                ?: throw RuntimeException("V2EX API 返回数据为空")
 
-                val topicArray = gson.fromJson(body, Array<V2EXTopicResponse>::class.java)
-                    ?: return emptyList()
+            val topicArray = gson.fromJson(body, Array<V2EXTopicResponse>::class.java)
+                ?: throw RuntimeException("V2EX API 数据解析失败")
 
-                topicArray
-                    .map { it.toTopic() }
-                    .filter { topic ->
-                        // 按分类过滤
-                        when (tab) {
-                            V2exTab.ALL -> true
-                            V2exTab.TECH -> topic.tags.any { tag ->
-                                TECH_NODE_NAMES.contains(tag.lowercase())
-                            }
+            return topicArray
+                .map { it.toTopic() }
+                .filter { topic ->
+                    when (tab) {
+                        V2exTab.ALL -> true
+                        V2exTab.TECH -> topic.tags.any { tag ->
+                            TECH_NODE_NAMES.contains(tag.lowercase())
                         }
                     }
-                    .also { topics ->
-                        // 缓存话题用于详情查看
-                        topics.forEach { v2exTopicCache[it.id] = it }
-                    }
-            }
-        } catch (_: Exception) {
-            emptyList()
+                }
+                .also { topics ->
+                    topics.forEach { v2exTopicCache[it.id] = it }
+                }
         }
     }
 

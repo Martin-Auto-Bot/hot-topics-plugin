@@ -148,6 +148,26 @@ class HotTopicsPanel(private val project: Project) : JPanel(BorderLayout()) {
                         topicListPanel.setTopics(topics, currentPage, isLastPage)
                         topicListPanel.setLoading(false)
                     }
+                } catch (e: java.net.SocketTimeoutException) {
+                    SwingUtilities.invokeLater {
+                        topicListPanel.showError("V2EX 请求超时，请检查网络连接或尝试刷新")
+                        topicListPanel.setLoading(false)
+                    }
+                } catch (e: java.net.UnknownHostException) {
+                    SwingUtilities.invokeLater {
+                        topicListPanel.showError("无法连接 V2EX (DNS 解析失败)，请检查网络")
+                        topicListPanel.setLoading(false)
+                    }
+                } catch (e: java.net.ConnectException) {
+                    SwingUtilities.invokeLater {
+                        topicListPanel.showError("无法连接 V2EX，网络可能不可达或被防火墙拦截")
+                        topicListPanel.setLoading(false)
+                    }
+                } catch (e: javax.net.ssl.SSLException) {
+                    SwingUtilities.invokeLater {
+                        topicListPanel.showError("V2EX SSL 连接异常，请检查网络环境")
+                        topicListPanel.setLoading(false)
+                    }
                 } catch (e: Exception) {
                     SwingUtilities.invokeLater {
                         topicListPanel.showError("加载失败: ${e.message}")
