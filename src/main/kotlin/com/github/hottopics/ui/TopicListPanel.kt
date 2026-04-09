@@ -14,7 +14,7 @@ import java.awt.*
 import java.awt.datatransfer.StringSelection
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import java.awt.event.ActionEvent
+
 import javax.swing.*
 import javax.swing.border.EmptyBorder
 import javax.swing.event.ListSelectionEvent
@@ -38,7 +38,6 @@ class TopicListPanel(
 
     private var currentPage = 1
     private var hasMore = true
-    private var isClickFromSelection = false  // 防止 ListSelectionListener 和 mouseClicked 双重触发
 
     init {
         setupUI()
@@ -52,11 +51,10 @@ class TopicListPanel(
         topicList.emptyText.text = "暂无话题数据"
         topicList.border = JBUI.Borders.empty()
 
-        // 方式一：ListSelectionListener（主要触发方式，更可靠）
+        // 列表点击选中 → 触发详情跳转
         topicList.addListSelectionListener(object : ListSelectionListener {
             override fun valueChanged(e: ListSelectionEvent) {
-                if (e.valueIsAdjusting) return  // 忽略拖拽中的连续事件
-                if (isClickFromSelection) return // 防止 mouseClicked 重复触发
+                if (e.valueIsAdjusting) return
                 val index = topicList.selectedIndex
                 if (index >= 0 && index < listModel.size) {
                     val topic = listModel.getElementAt(index)
@@ -65,26 +63,8 @@ class TopicListPanel(
             }
         })
 
-        // 方式二：鼠标点击（备用触发方式）
+        // 右键菜单
         topicList.addMouseListener(object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) {
-                if (e.clickCount == 1) {
-                    val index = topicList.locationToIndex(e.point)
-                    if (index >= 0 && index < listModel.size) {
-                        val topic = listModel.getElementAt(index)
-                        topicList.selectedIndex = index
-                        // 标记为鼠标点击触发，防止 ListSelectionListener 再次执行
-                        isClickFromSelection = true
-                        try {
-                            onTopicClick(topic)
-                        } finally {
-                            // 延迟重置标记，确保 ListSelectionListener 已跳过
-                            SwingUtilities.invokeLater { isClickFromSelection = false }
-                        }
-                    }
-                }
-            }
-
             override fun mousePressed(e: MouseEvent) {
                 showPopupMenu(e)
             }

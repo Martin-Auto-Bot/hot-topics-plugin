@@ -179,20 +179,22 @@ class HotTopicsPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private fun showTopicDetail(topic: Topic) {
-        object : Task.Backgroundable(project, "正在加载话题详情...", true) {
+        // 立即用列表中的数据展示详情，确保用户点击后能立刻看到
+        topicDetailPanel.setTopic(topic)
+        cardLayout.show(contentPanel, DETAIL_VIEW)
+
+        // 异步加载回复（不阻塞 UI，失败也不影响已显示的详情）
+        object : Task.Backgroundable(project, "正在加载回复...", true) {
             override fun run(indicator: ProgressIndicator) {
                 try {
                     val detail = dataService.getTopicDetail(topic.id)
-                    SwingUtilities.invokeLater {
-                        if (detail != null) {
+                    if (detail != null && detail.replies.isNotEmpty()) {
+                        SwingUtilities.invokeLater {
                             topicDetailPanel.setTopic(detail)
-                            cardLayout.show(contentPanel, DETAIL_VIEW)
                         }
                     }
-                } catch (e: Exception) {
-                    SwingUtilities.invokeLater {
-                        topicListPanel.showError("加载详情失败: ${e.message}")
-                    }
+                } catch (_: Exception) {
+                    // 回复加载失败不影响已展示的基本详情
                 }
             }
         }.queue()
