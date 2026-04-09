@@ -15,6 +15,7 @@ import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Dimension
+import java.awt.ItemEvent
 import javax.swing.*
 
 /**
@@ -22,100 +23,130 @@ import javax.swing.*
  * 包含工具栏、话题列表和详情页面
  */
 class HotTopicsPanel(private val project: Project) : JPanel(BorderLayout()) {
-    
+
     private val dataService = TopicService()
     private val cardLayout = CardLayout()
     private val contentPanel = JPanel(cardLayout)
-    
+
     private val topicListPanel: TopicListPanel
     private val topicDetailPanel: TopicDetailPanel
-    
+
     private var currentSource = SourceType.V2EX
+    private var currentV2exTab = TopicService.V2exTab.ALL
+    private var currentPage = 1
+
     private val sourceComboBox: ComboBox<SourceType> = ComboBox(SourceType.values())
-    
+
+    /** V2EX 分类切换（仅在选择 V2EX 时显示） */
+    private val v2exTabComboBox = ComboBox(TopicService.V2exTab.values())
+
     init {
-        // 创建话题列表面板
         topicListPanel = TopicListPanel(
             onTopicClick = { topic -> showTopicDetail(topic) },
-            onOpenInBrowser = { topic -> openInBrowser(topic) }
+            onOpenInBrowser = { topic -> openInBrowser(topic) },
+            onPageChange = { page -> currentPage = page; loadTopics() }
         )
-        
-        // 创建话题详情面板
+
         topicDetailPanel = TopicDetailPanel(
             onBackClick = { showTopicList() },
             onOpenInBrowser = { topic -> openInBrowser(topic) }
         )
-        
-        // 设置布局
+
         setupUI()
-        
-        // 加载初始数据
         loadTopics()
     }
-    
+
     private fun setupUI() {
-        // 工具栏
         val toolbar = createToolBar()
         add(toolbar, BorderLayout.NORTH)
-        
-        // 内容区域
+
         contentPanel.add(topicListPanel, LIST_VIEW)
         contentPanel.add(topicDetailPanel, DETAIL_VIEW)
         add(contentPanel, BorderLayout.CENTER)
-        
-        // 初始显示列表
+
         cardLayout.show(contentPanel, LIST_VIEW)
     }
-    
+
     private fun createToolBar(): JComponent {
         val toolbar = JPanel()
         toolbar.layout = BoxLayout(toolbar, BoxLayout.X_AXIS)
         toolbar.border = JBUI.Borders.empty(5, 8)
         toolbar.background = JBColor.PanelBackground
-        
+
         // 数据源选择
-        val sourceLabel = JBLabel("数据源: ")
+        val sourceLabel = JBLabel("数据源:")
         toolbar.add(sourceLabel)
-        
+
         sourceComboBox.selectedItem = currentSource
-        sourceComboBox.addActionListener { 
+        sourceComboBox.preferredSize = Dimension(80, 28)
+        sourceComboBox.addActionListener { e ->
             currentSource = sourceComboBox.selectedItem as SourceType
+            currentPage = 1
+            topicListPanel.resetPage()
+            updateV2exTabVisibility()
             loadTopics()
         }
-        sourceComboBox.preferredSize = Dimension(100, 28)
         toolbar.add(sourceComboBox)
-        
+
         toolbar.add(Box.createHorizontalStrut(10))
-        
+
+        // V2EX 分类选择（仅 V2EX 时显示）
+        v2exTabComboBox.selectedItem = currentV2exTab
+        v2exTabComboBox.preferredSize = Dimension(70, 28)
+        v2exTabComboBox.addActionListener { e ->
+            if (e.source === v2exTabComboBox) {
+                currentV2exTab = v2exTabComboBox.selectedItem as TopicService.V2exTab
+                currentPage = 1
+                topicListPanel.resetPage()
+                loadTopics()
+            }
+        }
+        toolbar.add(v2exTabComboBox)
+
+        toolbar.add(Box.createHorizontalStrut(10))
+
         // 刷新按钮
         val refreshButton = JButton("刷新").apply {
             toolTipText = "刷新热门话题"
-            addActionListener { loadTopics() }
+            addActionListener {
+                currentPage = 1
+                topicListPanel.resetPage()
+                loadTopics()
+            }
         }
         toolbar.add(refreshButton)
-        
+
         toolbar.add(Box.createHorizontalGlue())
-        
-        // 状态标签
+
         val statusLabel = JBLabel("就绪").apply {
             foreground = JBColor.GRAY
         }
         toolbar.add(statusLabel)
-        
+
+        // 初始状态：V2EX 默认显示分类
+        updateV2exTabVisibility()
+
         return toolbar
     }
-    
+
+    /** 根据当前数据源控制 V2EX 分类选择器可见性 */
+    private fun updateV2exTabVisibility() {
+        v2exTabComboBox.isVisible = (currentSource == SourceType.V2EX)
+    }
+
     private fun loadTopics() {
         SwingUtilities.invokeLater {
             topicListPanel.setLoading(true)
         }
-        
+
         object : Task.Backgroundable(project, "正在加载热门话题...", true) {
             override fun run(indicator: ProgressIndicator) {
                 try {
-                    val topics = dataService.getTopics(currentSource)
+                    val topics = dataService.getTopics(currentSource, currentV2exTab, currentPage)
                     SwingUtilities.invokeLater {
-                        topicListPanel.setTopics(topics)
+                        // V2EX 每页约 25 条，少于 25 条视为最后一页
+                        val isLastPage = currentSource != SourceType.V2EX || topics.size < 25
+                        topicListPanel.setTopics(topics, currentPage, isLastPage)
                         topicListPanel.setLoading(false)
                     }
                 } catch (e: Exception) {
@@ -127,7 +158,7 @@ class HotTopicsPanel(private val project: Project) : JPanel(BorderLayout()) {
             }
         }.queue()
     }
-    
+
     private fun showTopicDetail(topic: Topic) {
         object : Task.Backgroundable(project, "正在加载话题详情...", true) {
             override fun run(indicator: ProgressIndicator) {
@@ -147,11 +178,11 @@ class HotTopicsPanel(private val project: Project) : JPanel(BorderLayout()) {
             }
         }.queue()
     }
-    
+
     private fun showTopicList() {
         cardLayout.show(contentPanel, LIST_VIEW)
     }
-    
+
     private fun openInBrowser(topic: Topic) {
         topic.url?.let { url ->
             try {
@@ -176,7 +207,7 @@ class HotTopicsPanel(private val project: Project) : JPanel(BorderLayout()) {
             )
         }
     }
-    
+
     companion object {
         private const val LIST_VIEW = "LIST"
         private const val DETAIL_VIEW = "DETAIL"

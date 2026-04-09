@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit
 /**
  * 话题数据获取服务 - 统一的话题数据获取接口
  *
- * - V2EX: 通过真实 API 获取热门话题数据
+ * - V2EX: 通过真实 API 获取话题，支持分类切换和分页
  * - 知乎 / 微博: 回退到 MockDataService（暂无公开 API）
  */
 class TopicService {
@@ -25,12 +25,32 @@ class TopicService {
 
     private val mockDataService = MockDataService()
 
+    /** V2EX 当前已加载的话题缓存，用于详情查看 */
+    private val v2exTopicCache = mutableMapOf<String, Topic>()
+
     companion object {
-        private const val V2EX_HOT_TOPICS_URL = "https://www.v2ex.com/api/topics/hot.json"
+        private const val V2EX_LATEST_URL = "https://www.v2ex.com/api/topics/latest.json"
+        private const val V2EX_REPLIES_URL = "https://www.v2ex.com/api/replies/show.json?topic_id="
+
+        /** 技术相关的 V2EX 节点名称 */
+        private val TECH_NODE_NAMES = setOf(
+            "programmer", "programming", "python", "java", "go", "rust",
+            "javascript", "nodejs", "php", "ruby", "swift", "kotlin",
+            "ios", "android", "macos", "linux", "windows", "chrome",
+            "firefox", "gcc", "mysql", "postgresql", "redis", "mongodb",
+            "docker", "kubernetes", "aws", "devops", "qianduan",
+            "html", "css", "react", "vue", "angular", "share", "create",
+            "design", "ui", "ux", "apple", "google", "microsoft",
+            "ai", "machinelearning", "deep learning", "blockchain",
+            "web", "security", "network", "database", "algorithms",
+            "emacs", "vim", "vscode", "github", "git",
+            "云计算", "服务器", "运维", "前端", "后端", "开源项目",
+            "程序员", "分享创造", "问与答", "酷工作", "二级市场"
+        )
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    //  V2EX API 响应 DTO（内部使用，不暴露给外部）
+    //  V2EX API 响应 DTO
     // ──────────────────────────────────────────────────────────────────────
 
     private data class V2EXTopicResponse(
@@ -61,22 +81,42 @@ class TopicService {
         val username: String? = null
     )
 
+    private data class V2EXReplyResponse(
+        val id: Long,
+        @SerializedName("topic_id")
+        val topicId: Long,
+        val content: String? = null,
+        @SerializedName("content_rendered")
+        val contentRendered: String? = null,
+        val created: Long,
+        val member: V2EXMember? = null,
+        @SerializedName("reply_to")
+        val replyTo: Int? = null
+    )
+
     // ──────────────────────────────────────────────────────────────────────
     //  公开 API
     // ──────────────────────────────────────────────────────────────────────
 
     /**
+     * V2EX 分类标签
+     */
+    enum class V2exTab(val displayName: String) {
+        ALL("全部"),
+        TECH("技术")
+    }
+
+    /**
      * 获取指定数据源的话题列表（统一入口）。
      *
-     * - V2EX: 请求真实 API
-     * - 知乎 / 微博 / 自定义: 回退到 MockDataService
-     *
      * @param source 数据源类型
-     * @return 话题列表；网络异常时 V2EX 返回空列表，其他数据源返回 Mock 数据
+     * @param tab V2EX 分类标签（仅 V2EX 有效）
+     * @param page 页码（从 1 开始，仅 V2EX 有效）
+     * @return 话题列表
      */
-    fun getTopics(source: SourceType): List<Topic> {
+    fun getTopics(source: SourceType, tab: V2exTab = V2exTab.ALL, page: Int = 1): List<Topic> {
         return when (source) {
-            SourceType.V2EX -> fetchV2EXHotTopics()
+            SourceType.V2EX -> fetchV2EXTopics(tab, page)
             SourceType.ZHIHU -> mockDataService.getTopics(SourceType.ZHIHU)
             SourceType.WEIBO -> mockDataService.getTopics(SourceType.WEIBO)
             SourceType.CUSTOM -> mockDataService.getTopics(SourceType.CUSTOM)
@@ -86,13 +126,22 @@ class TopicService {
     /**
      * 获取话题详情。
      *
-     * 优先从 Mock 数据中查找；V2EX 话题也可以通过 API 查询
-     * （当前暂不实现单个 V2EX 话题的详情 API）。
-     *
-     * @param topicId 话题 ID
-     * @return 话题详情，未找到时返回 null
+     * - V2EX: 优先从缓存获取，并尝试加载回复
+     * - 其他: 从 Mock 数据查找
      */
     fun getTopicDetail(topicId: String): Topic? {
+        // 优先从 V2EX 缓存中查找
+        val cached = v2exTopicCache[topicId]
+        if (cached != null) {
+            // 尝试获取 V2EX 回复
+            val replies = fetchV2EXReplies(topicId)
+            return if (replies.isNotEmpty()) {
+                cached.copy(replies = replies)
+            } else {
+                cached
+            }
+        }
+        // 回退到 Mock 数据
         return mockDataService.getTopicDetail(topicId)
     }
 
@@ -100,33 +149,69 @@ class TopicService {
     //  V2EX API 请求
     // ──────────────────────────────────────────────────────────────────────
 
-    /**
-     * 从 V2EX 热门话题 API 获取并映射话题列表。
-     *
-     * 任何网络 / 解析异常均被捕获，返回空列表以确保插件稳定运行。
-     */
-    private fun fetchV2EXHotTopics(): List<Topic> {
+    private fun fetchV2EXTopics(tab: V2exTab, page: Int): List<Topic> {
         return try {
+            val url = "$V2EX_LATEST_URL?p=$page"
             val request = Request.Builder()
-                .url(V2EX_HOT_TOPICS_URL)
+                .url(url)
                 .header("User-Agent", "HotTopics-IntelliJ-Plugin/1.0")
                 .get()
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    return emptyList()
-                }
+                if (!response.isSuccessful) return emptyList()
 
                 val body = response.body?.string() ?: return emptyList()
 
                 val topicArray = gson.fromJson(body, Array<V2EXTopicResponse>::class.java)
                     ?: return emptyList()
 
-                topicArray.map { it.toTopic() }
+                topicArray
+                    .map { it.toTopic() }
+                    .filter { topic ->
+                        // 按分类过滤
+                        when (tab) {
+                            V2exTab.ALL -> true
+                            V2exTab.TECH -> topic.tags.any { tag ->
+                                TECH_NODE_NAMES.contains(tag.lowercase())
+                            }
+                        }
+                    }
+                    .also { topics ->
+                        // 缓存话题用于详情查看
+                        topics.forEach { v2exTopicCache[it.id] = it }
+                    }
             }
         } catch (_: Exception) {
-            // 捕获所有异常（网络错误、JSON 解析错误等），返回空列表
+            emptyList()
+        }
+    }
+
+    /**
+     * 获取 V2EX 话题的回复列表
+     */
+    private fun fetchV2EXReplies(topicId: String): List<Reply> {
+        // 从 topicId 中提取 V2EX 原始 ID（格式: "v2ex-12345"）
+        val numericId = topicId.removePrefix("v2ex-").toLongOrNull() ?: return emptyList()
+
+        return try {
+            val request = Request.Builder()
+                .url("$V2EX_REPLIES_URL$numericId")
+                .header("User-Agent", "HotTopics-IntelliJ-Plugin/1.0")
+                .get()
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return emptyList()
+
+                val body = response.body?.string() ?: return emptyList()
+
+                val replyArray = gson.fromJson(body, Array<V2EXReplyResponse>::class.java)
+                    ?: return emptyList()
+
+                replyArray.map { it.toReply() }
+            }
+        } catch (_: Exception) {
             emptyList()
         }
     }
@@ -135,21 +220,13 @@ class TopicService {
     //  数据映射
     // ──────────────────────────────────────────────────────────────────────
 
-    /**
-     * 将 V2EX API 响应映射到统一的 [Topic] 模型。
-     */
     private fun V2EXTopicResponse.toTopic(): Topic {
-        // 使用 Jsoup 去除 HTML 标签，获取纯文本内容
         val plainContent = buildString {
-            // 优先使用 content_rendered（已渲染的 HTML），否则使用 content
             val html = contentRendered ?: content ?: ""
             append(Jsoup.parse(html).text())
-            if (isEmpty()) {
-                append(title) // 兜底：如果没有正文则使用标题
-            }
+            if (isEmpty()) append(title)
         }
 
-        // 节点名称作为标签
         val tagName = node?.name
         val tags = if (tagName.isNullOrBlank()) emptyList() else listOf(tagName)
 
@@ -159,10 +236,10 @@ class TopicService {
             author = member?.username ?: "匿名用户",
             authorAvatar = null,
             content = plainContent,
-            replies = emptyList(),  // 热门话题列表 API 不包含回复详情
+            replies = emptyList(),
             viewCount = viewsCount,
             replyCount = repliesCount,
-            likeCount = 0,         // V2EX 热门话题 API 不提供点赞数
+            likeCount = 0,
             createTime = formatRelativeTime(created),
             source = SourceType.V2EX,
             url = url,
@@ -170,13 +247,27 @@ class TopicService {
         )
     }
 
+    private fun V2EXReplyResponse.toReply(): Reply {
+        val plainContent = buildString {
+            val html = contentRendered ?: content ?: ""
+            append(Jsoup.parse(html).text())
+        }
+
+        return Reply(
+            id = "v2ex-reply-$id",
+            author = member?.username ?: "匿名用户",
+            authorAvatar = null,
+            content = plainContent,
+            likeCount = 0,
+            createTime = formatRelativeTime(created),
+            replyTo = replyTo?.toString()
+        )
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     //  时间格式化
     // ──────────────────────────────────────────────────────────────────────
 
-    /**
-     * 将 Unix 时间戳（秒）转换为相对时间字符串，如 "3小时前"、"2天前"。
-     */
     private fun formatRelativeTime(epochSeconds: Long): String {
         val now = System.currentTimeMillis() / 1000
         val diff = now - epochSeconds
