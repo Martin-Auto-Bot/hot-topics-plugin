@@ -126,20 +126,36 @@ class TopicService {
     /**
      * 获取话题详情。
      *
-     * - V2EX: 优先从缓存获取，并尝试加载回复
-     * - 其他: 从 Mock 数据查找
+     * 策略：V2EX 优先 API 获取回复 → 失败则 Jsoup 抓取网页解析 → 都失败则只展示基本信息
+     * 其他数据源直接从 Mock 数据查找。
      */
     fun getTopicDetail(topicId: String): Topic? {
         // 优先从 V2EX 缓存中查找
         val cached = v2exTopicCache[topicId]
         if (cached != null) {
-            // 尝试获取 V2EX 回复，失败不影响详情展示
-            return try {
+            // 方式一：API 获取回复
+            try {
                 val replies = fetchV2EXReplies(topicId)
-                if (replies.isNotEmpty()) cached.copy(replies = replies) else cached
+                if (replies.isNotEmpty()) return cached.copy(replies = replies)
             } catch (_: Exception) {
-                cached
+                // API 失败，继续尝试抓取
             }
+
+            // 方式二：Jsoup 抓取网页解析回复 + 完整正文
+            val topicUrl = cached.url
+            if (!topicUrl.isNullOrBlank()) {
+                try {
+                    val scraped = scrapeV2exTopicPage(topicUrl)
+                    return cached.copy(
+                        content = if (scraped.first.isNotBlank()) scraped.first else cached.content,
+                        replies = scraped.second
+                    )
+                } catch (_: Exception) {
+                    // 抓取也失败，返回缓存的基本信息
+                }
+            }
+
+            return cached
         }
         // 回退到 Mock 数据
         return mockDataService.getTopicDetail(topicId)
@@ -215,8 +231,71 @@ class TopicService {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    //  数据映射
+    //  Jsoup 网页抓取（API 失败时的备选方案）
     // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * 通过 Jsoup 抓取 V2EX 话题详情页，解析正文和回复。
+     *
+     * @param topicUrl 话题页面 URL（如 https://www.v2ex.com/t/1204632）
+     * @return Pair(正文纯文本, 回复列表)
+     */
+    private fun scrapeV2exTopicPage(topicUrl: String): Pair<String, List<Reply>> {
+        val doc = Jsoup.connect(topicUrl)
+            .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .timeout(8000)
+            .followRedirects(true)
+            .get()
+
+        // 解析正文
+        val contentText = doc.selectFirst("div.markdown_body")?.text() ?: ""
+
+        // 解析回复
+        val replies = mutableListOf<Reply>()
+        val replyCells = doc.select("div[id^=r_]")
+
+        for (cell in replyCells) {
+            val replyId = cell.id().removePrefix("r_")
+
+            // 作者
+            val authorEl = cell.selectFirst("strong > a.dark, a.dark")
+            val author = authorEl?.text() ?: "匿名用户"
+
+            // 回复内容
+            val contentEl = cell.selectFirst("div.reply_content")
+            val replyContent = contentEl?.text() ?: ""
+
+            if (replyContent.isBlank()) continue  // 跳过空回复
+
+            // 发布时间
+            val timeEl = cell.selectFirst("span.ago")
+            val time = timeEl?.attr("title") ?: timeEl?.text() ?: ""
+
+            // 感谢数
+            var thankCount = 0
+            val thankEl = cell.selectFirst("span.smallfade")
+            if (thankEl != null) {
+                val match = Regex("\\d+").findAll(thankEl.text()).toList()
+                if (match.size >= 2) thankCount = match[1].value.toIntOrNull() ?: 0
+            }
+
+            // 回复对象
+            val replyToEl = cell.selectFirst("a.reply2")
+            val replyTo = replyToEl?.text()?.removePrefix("@")
+
+            replies.add(Reply(
+                id = "v2ex-reply-$replyId",
+                author = author,
+                authorAvatar = null,
+                content = replyContent,
+                likeCount = thankCount,
+                createTime = time,
+                replyTo = replyTo
+            ))
+        }
+
+        return Pair(contentText, replies)
+    }
 
     private fun V2EXTopicResponse.toTopic(): Topic {
         val plainContent = buildString {
