@@ -162,9 +162,10 @@ class TopicDetailPanel(
         val styleSheet = StyleSheet()
         styleSheet.addRule("body { font-family: sans-serif; font-size: 13px; line-height: 1.6; }")
         styleSheet.addRule("p { margin: 0 0 10px 0; }")
-        styleSheet.addRule("ul, ol { margin: 10px 0; padding-left: 20px; }")
+        styleSheet.addRule("ul, ol { margin: 10px 0; }")
         styleSheet.addRule("li { margin: 5px 0; }")
-        styleSheet.addRule("code { padding: 2px 6px; border-radius: 3px; font-family: monospace; }")
+        styleSheet.addRule("code { font-family: monospace; }")
+        styleSheet.addRule("a { color: #448AFF; }")
         kit.styleSheet = styleSheet
         contentPane.editorKit = kit
 
