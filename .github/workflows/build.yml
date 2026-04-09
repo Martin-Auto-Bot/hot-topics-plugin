@@ -1,19 +1,29 @@
-name: Build Plugin
+name: Build & Release Plugin
 
 on:
   push:
     branches: [ main, master ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      changelog: ${{ steps.version.outputs.changelog }}
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Setup Java 17
       uses: actions/setup-java@v4
@@ -28,12 +38,88 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
+    - name: Extract plugin version
+      id: version
+      run: |
+        # 从 build.gradle.kts 中提取版本号
+        VERSION=$(grep 'version =' build.gradle.kts | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "插件版本: ${VERSION}"
+
+        # 从 Git tag 中提取版本号（如果有 tag）
+        if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "tag_version=${TAG_VERSION}" >> $GITHUB_OUTPUT
+        fi
+
+        # 生成变更日志（最近一次 tag 之后的提交）
+        if git tag --list &>/dev/null; then
+          PREVIOUS_TAG=$(git tag --sort=-version:refname | head -2 | tail -1)
+          if [ -n "$PREVIOUS_TAG" ]; then
+            CHANGELOG=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges 2>/dev/null || echo "初始发布")
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges -20 2>/dev/null || echo "初始发布")
+          fi
+        else
+          CHANGELOG="初始发布"
+        fi
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGELOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Build Plugin
       run: ./gradlew buildPlugin
 
-    - name: Upload Plugin
+    - name: Verify build output
+      run: |
+        echo "构建产物列表:"
+        ls -la build/distributions/ || echo "未找到构建产物"
+
+    # ── 制品上传：每次构建都上传，方便随时下载 ──
+    - name: Upload plugin artifact
       uses: actions/upload-artifact@v4
       with:
-        name: hot-topics-plugin
+        name: hot-topics-plugin-${{ steps.version.outputs.version }}
         path: build/distributions/*.zip
-        retention-days: 30
+        retention-days: 90
+
+  # ── 发布到 GitHub Release：仅在推送 tag (v*) 时触发 ──
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Download plugin artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: hot-topics-plugin-${{ needs.build.outputs.version }}
+        path: ./dist
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        name: Hot Topics Plugin v${{ needs.build.outputs.version }}
+        body: |
+          ## Hot Topics Browser IntelliJ Plugin v${{ needs.build.outputs.version }}
+
+          ### 安装方法
+          1. 下载下方 `hot-topics-plugin-*.zip` 文件
+          2. 打开 IntelliJ IDEA / GoLand
+          3. 进入 `Settings` → `Plugins` → ⚙️ → `Install Plugin from Disk...`
+          4. 选择下载的 zip 文件，重启 IDE
+          5. 在 IDE 右侧边栏找到 **Hot Topics** 面板
+
+          ### 功能
+          - 浏览 V2EX、知乎、微博等平台热门话题
+          - V2EX 接入真实 API，实时获取最新热门话题
+          - 话题列表浏览和详情查看
+          - 一键在浏览器中打开原帖
+
+          ### 更新日志
+          ${{ needs.build.outputs.changelog }}
+        files: ./dist/*.zip
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

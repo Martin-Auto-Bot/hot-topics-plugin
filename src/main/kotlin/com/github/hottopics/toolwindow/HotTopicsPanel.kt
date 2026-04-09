@@ -2,19 +2,19 @@ package com.github.hottopics.toolwindow
 
 import com.github.hottopics.model.SourceType
 import com.github.hottopics.model.Topic
-import com.github.hottopics.service.MockDataService
+import com.github.hottopics.service.TopicService
 import com.github.hottopics.ui.TopicDetailPanel
 import com.github.hottopics.ui.TopicListPanel
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBLoadingPanel
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Dimension
-import java.awt.event.ActionEvent
 import javax.swing.*
 
 /**
@@ -23,7 +23,7 @@ import javax.swing.*
  */
 class HotTopicsPanel(private val project: Project) : JPanel(BorderLayout()) {
     
-    private val dataService = MockDataService()
+    private val dataService = TopicService()
     private val cardLayout = CardLayout()
     private val contentPanel = JPanel(cardLayout)
     
@@ -94,15 +94,6 @@ class HotTopicsPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
         toolbar.add(refreshButton)
         
-        toolbar.add(Box.createHorizontalStrut(10))
-        
-        // 返回按钮（默认隐藏）
-        val backButton = JButton("← 返回列表").apply {
-            addActionListener { showTopicList() }
-            isVisible = false
-        }
-        toolbar.add(backButton)
-        
         toolbar.add(Box.createHorizontalGlue())
         
         // 状态标签
@@ -115,41 +106,46 @@ class HotTopicsPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     
     private fun loadTopics() {
-        // 在后台线程加载数据
         SwingUtilities.invokeLater {
             topicListPanel.setLoading(true)
         }
         
-        Thread {
-            try {
-                Thread.sleep(500) // 模拟网络延迟
-                
-                val topics = dataService.getTopics(currentSource)
-                
-                SwingUtilities.invokeLater {
-                    topicListPanel.setTopics(topics)
-                    topicListPanel.setLoading(false)
-                }
-            } catch (e: Exception) {
-                SwingUtilities.invokeLater {
-                    topicListPanel.showError("加载失败: ${e.message}")
-                    topicListPanel.setLoading(false)
+        object : Task.Backgroundable(project, "正在加载热门话题...", true) {
+            override fun run(indicator: ProgressIndicator) {
+                try {
+                    val topics = dataService.getTopics(currentSource)
+                    SwingUtilities.invokeLater {
+                        topicListPanel.setTopics(topics)
+                        topicListPanel.setLoading(false)
+                    }
+                } catch (e: Exception) {
+                    SwingUtilities.invokeLater {
+                        topicListPanel.showError("加载失败: ${e.message}")
+                        topicListPanel.setLoading(false)
+                    }
                 }
             }
-        }.start()
+        }.queue()
     }
     
     private fun showTopicDetail(topic: Topic) {
-        // 加载话题详情
-        Thread {
-            val detail = dataService.getTopicDetail(topic.id)
-            SwingUtilities.invokeLater {
-                if (detail != null) {
-                    topicDetailPanel.setTopic(detail)
-                    cardLayout.show(contentPanel, DETAIL_VIEW)
+        object : Task.Backgroundable(project, "正在加载话题详情...", true) {
+            override fun run(indicator: ProgressIndicator) {
+                try {
+                    val detail = dataService.getTopicDetail(topic.id)
+                    SwingUtilities.invokeLater {
+                        if (detail != null) {
+                            topicDetailPanel.setTopic(detail)
+                            cardLayout.show(contentPanel, DETAIL_VIEW)
+                        }
+                    }
+                } catch (e: Exception) {
+                    SwingUtilities.invokeLater {
+                        topicListPanel.showError("加载详情失败: ${e.message}")
+                    }
                 }
             }
-        }.start()
+        }.queue()
     }
     
     private fun showTopicList() {

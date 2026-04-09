@@ -2,8 +2,8 @@ package com.github.hottopics.ui
 
 import com.github.hottopics.model.SourceType
 import com.github.hottopics.model.Topic
+import com.github.hottopics.util.TextUtils
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.ui.Messages
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
@@ -226,7 +226,7 @@ class TopicListCellRenderer : JPanel(BorderLayout()), ListCellRenderer<Topic> {
         cellHasFocus: Boolean
     ): JComponent {
         // 设置标题
-        titleLabel.text = truncateText(topic.title, 50)
+        titleLabel.text = TextUtils.truncateText(topic.title, 50)
         
         // 设置来源标签
         sourceBadge.text = topic.source.displayName
@@ -237,7 +237,7 @@ class TopicListCellRenderer : JPanel(BorderLayout()), ListCellRenderer<Topic> {
         metaLabel.text = "${topic.author} · ${topic.createTime}"
         
         // 设置统计信息
-        statsLabel.text = "💬 ${topic.replyCount}  👁 ${formatCount(topic.viewCount)}  ❤ ${topic.likeCount}"
+        statsLabel.text = "💬 ${topic.replyCount}  👁 ${TextUtils.formatCount(topic.viewCount)}  ❤ ${topic.likeCount}"
         
         // 设置选中状态
         if (isSelected) {
@@ -249,28 +249,12 @@ class TopicListCellRenderer : JPanel(BorderLayout()), ListCellRenderer<Topic> {
         return this
     }
     
-    private fun truncateText(text: String, maxLength: Int): String {
-        return if (text.length > maxLength) {
-            text.substring(0, maxLength) + "..."
-        } else {
-            text
-        }
-    }
-    
     private fun getSourceColor(source: SourceType): Color {
         return when (source) {
             SourceType.V2EX -> Color(0x33, 0x33, 0x33)
             SourceType.ZHIHU -> Color(0x00, 0x86, 0xEB)
             SourceType.WEIBO -> Color(0xE6, 0x16, 0x2D)
             SourceType.CUSTOM -> Color(0x66, 0x66, 0x66)
-        }
-    }
-    
-    private fun formatCount(count: Int): String {
-        return when {
-            count >= 10000 -> String.format("%.1fw", count / 10000.0)
-            count >= 1000 -> String.format("%.1fk", count / 1000.0)
-            else -> count.toString()
         }
     }
     

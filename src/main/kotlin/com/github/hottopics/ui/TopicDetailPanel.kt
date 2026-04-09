@@ -2,9 +2,8 @@ package com.github.hottopics.ui
 
 import com.github.hottopics.model.Reply
 import com.github.hottopics.model.Topic
+import com.github.hottopics.util.TextUtils
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.ui.JBMenuItem
-import com.intellij.openapi.ui.JBPopupMenu
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -108,7 +107,7 @@ class TopicDetailPanel(
         headerPanel.removeAll()
         
         // 标题
-        val titleLabel = JBLabel("<html><body style='width: 350px; font-size: 16px; font-weight: bold;'>${escapeHtml(topic.title)}</body></html>")
+        val titleLabel = JBLabel("<html><body style='width: 350px; font-size: 16px; font-weight: bold;'>${TextUtils.escapeHtml(topic.title)}</body></html>")
         titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 16f)
         titleLabel.border = JBUI.Borders.emptyBottom(10)
         headerPanel.add(titleLabel, BorderLayout.NORTH)
@@ -128,7 +127,7 @@ class TopicDetailPanel(
         metaPanel.add(sourceLabel)
         
         // 统计信息
-        val statsLabel = JBLabel("👁 ${formatCount(topic.viewCount)}  💬 ${topic.replyCount}  ❤ ${topic.likeCount}")
+        val statsLabel = JBLabel("👁 ${TextUtils.formatCount(topic.viewCount)}  💬 ${topic.replyCount}  ❤ ${topic.likeCount}")
         statsLabel.foreground = JBColor.BLUE
         metaPanel.add(statsLabel)
         
@@ -177,7 +176,7 @@ class TopicDetailPanel(
         contentPane.editorKit = kit
         
         // 将内容转换为 HTML 格式
-        val htmlContent = convertToHtml(topic.content)
+        val htmlContent = TextUtils.convertToHtml(topic.content)
         contentPane.text = "<html><body style='width: 350px;'>$htmlContent</body></html>"
         
         // 设置固定宽度
@@ -259,7 +258,7 @@ class TopicDetailPanel(
         kit.styleSheet = styleSheet
         contentPane.editorKit = kit
         
-        val htmlContent = convertToHtml(reply.content)
+        val htmlContent = TextUtils.convertToHtml(reply.content)
         contentPane.text = "<html><body style='width: 330px;'>$htmlContent</body></html>"
         contentPane.border = JBUI.Borders.emptyTop(8)
         
@@ -276,34 +275,4 @@ class TopicDetailPanel(
         return panel
     }
     
-    private fun convertToHtml(text: String): String {
-        // 简单的文本转 HTML
-        return text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\n\n", "</p><p>")
-            .replace("\n", "<br>")
-            .let { "<p>$it</p>" }
-            .replace(Regex("(https?://\\S+)")) { matchResult ->
-                "<a href='${matchResult.value}'>${matchResult.value}</a>"
-            }
-    }
-    
-    private fun escapeHtml(text: String): String {
-        return text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\"", "&quot;")
-            .replace("'", "&#39;")
-    }
-    
-    private fun formatCount(count: Int): String {
-        return when {
-            count >= 10000 -> String.format("%.1fw", count / 10000.0)
-            count >= 1000 -> String.format("%.1fk", count / 1000.0)
-            else -> count.toString()
-        }
-    }
 }
